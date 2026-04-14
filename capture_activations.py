@@ -204,7 +204,7 @@ def main() -> None:
     # Set up configuration
     store_layer_activ = [22]
     batch_size = 32
-    dataloader_num_workers = 8
+    dataloader_num_workers = 4
     dtype = torch.bfloat16
     max_token_length = 192
     add_bos_token = False
