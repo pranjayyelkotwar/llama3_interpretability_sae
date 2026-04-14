@@ -14,7 +14,9 @@ from llama_3.args import ModelArgs
 from llama_3.model_text_only import Transformer
 from llama_3.tokenizer import Tokenizer
 from openwebtext_sentences_dataset import OpenWebTextSentencesDataset
+from question_datasets import build_combined_question_dataset
 from utils.cuda_utils import set_up_cuda
+from utils.llama_3_model_download import MODEL_REGISTRY, ensure_model_downloaded
 
 
 def load_model(
@@ -62,7 +64,13 @@ def capture_activations(
     total_batches = len(dataloader)
     update_interval = max(1, total_batches // 200)
 
-    for batch_idx, (batch, indices, seq_lens) in enumerate(dataloader):
+    for batch_idx, dataloader_batch in enumerate(dataloader):
+        if len(dataloader_batch) == 4:
+            batch, indices, seq_lens, metadata = dataloader_batch
+        else:
+            batch, indices, seq_lens = dataloader_batch
+            metadata = None
+
         # Move batch to device and set activation states to input
         batch = batch.to(device)
         with torch.no_grad():
@@ -86,7 +94,7 @@ def capture_activations(
             time.sleep(0.1)
 
         # Put activations in the queue for saving
-        save_activation_queue.put((trimmed_activations, indices))
+        save_activation_queue.put((trimmed_activations, indices, metadata))
 
         # Update progress bar every 0.5% of the process assigned batches
         if (batch_idx + 1) % update_interval == 0:
@@ -98,15 +106,16 @@ def capture_activations(
     save_activation_queue.put(None)
 
 
-def save_activations_process(queue: Queue, activation_out_dir: Path) -> None:
+def save_activations_process(queue: Queue, activation_out_dir: Path, rank: int) -> None:
     """Process for saving activations asynchronously."""
+    metadata_path = activation_out_dir / f"metadata_rank{rank}.jsonl"
     while True:
         # Wait until next item from the queue, if it is None, then stop
         item = queue.get()
         if item is None:
             logging.info("Received stop signal. Finishing activation saving process.")
             break
-        layer_activations, indices = item
+        layer_activations, indices, metadata_batch = item
 
         # Store all activations for each layer
         for layer, activations in layer_activations.items():
@@ -118,6 +127,16 @@ def save_activations_process(queue: Queue, activation_out_dir: Path) -> None:
                 filename = f"activations_l{layer}_idx{dataset_idx}.pt"
                 file_path = layer_dir / filename
                 torch.save(activ, file_path)
+
+                if metadata_batch is not None:
+                    metadata_record = {
+                        **metadata_batch[i],
+                        "activation_path": str(file_path),
+                        "capture_dataset_idx": dataset_idx,
+                        "capture_layer": layer,
+                    }
+                    with metadata_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(metadata_record) + "\n")
 
 
 def setup_output_dir(output_dir: Path, store_layer_activ: list[int]) -> None:
@@ -131,9 +150,22 @@ def setup_output_dir(output_dir: Path, store_layer_activ: list[int]) -> None:
 def parse_arguments() -> argparse.Namespace:
     """"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_dir", type=Path, required=True)
+    parser.add_argument("--model_dir", type=Path, default=None)
+    parser.add_argument("--model_name", type=str, choices=sorted(MODEL_REGISTRY.keys()), default=None)
     parser.add_argument("--output_dir", type=Path, default=Path("activation_outs/"))
     parser.add_argument("--num_samples", type=int, default=None)
+    parser.add_argument(
+        "--dataset_source",
+        type=str,
+        choices=["openwebtext", "qa"],
+        default="openwebtext",
+    )
+    parser.add_argument(
+        "--qa_datasets",
+        type=str,
+        default="arc_easy,mmlu,hle",
+        help="Comma-separated list chosen from: arc_easy,mmlu,hle",
+    )
     return parser.parse_args()
 
 
@@ -155,7 +187,15 @@ def main() -> None:
 
     # Parse arguments and set up paths
     args = parse_arguments()
-    args.model_dir = args.model_dir.resolve()
+    if args.model_dir is None and args.model_name is None:
+        raise ValueError("Either --model_dir or --model_name must be provided")
+    if args.model_dir is not None and args.model_name is not None:
+        raise ValueError("Provide only one of --model_dir or --model_name")
+
+    if args.model_name is not None:
+        args.model_dir = ensure_model_downloaded(args.model_name)
+    else:
+        args.model_dir = args.model_dir.resolve()
     args.output_dir = args.output_dir.resolve()
     tokenizer_path = args.model_dir / "tokenizer.model"
     params_path = args.model_dir / "params.json"
@@ -174,8 +214,11 @@ def main() -> None:
         logging.info("#### Starting activation capture script.")
         logging.info("#### Arguments:")
         logging.info(f"# model_dir={args.model_dir}")
+        logging.info(f"# model_name={args.model_name}")
         logging.info(f"# output_dir={args.output_dir}")
         logging.info(f"# num_samples={args.num_samples}")
+        logging.info(f"# dataset_source={args.dataset_source}")
+        logging.info(f"# qa_datasets={args.qa_datasets}")
         logging.info("#### Distributed Configuration:")
         logging.info(f"# world_size={world_size}")
         logging.info(f"# rank={rank}")
@@ -200,13 +243,22 @@ def main() -> None:
     dist.barrier()
 
     logging.info("Creating dataset, sampler and dataloader...")
-    dataset = OpenWebTextSentencesDataset(
-        tokenizer=tokenizer,
-        max_token_length=max_token_length,
-        num_samples=args.num_samples,
-        shuffle=dataset_shuffle,
-        add_bos_token=add_bos_token,
-    )
+    if args.dataset_source == "qa":
+        dataset_names = [name.strip() for name in args.qa_datasets.split(",") if name.strip()]
+        dataset = build_combined_question_dataset(
+            dataset_names=dataset_names,
+            tokenizer=tokenizer,
+            max_token_length=max_token_length,
+            add_bos_token=add_bos_token,
+        )
+    else:
+        dataset = OpenWebTextSentencesDataset(
+            tokenizer=tokenizer,
+            max_token_length=max_token_length,
+            num_samples=args.num_samples,
+            shuffle=dataset_shuffle,
+            add_bos_token=add_bos_token,
+        )
     sampler = DistributedSampler(
         dataset,
         num_replicas=world_size,
@@ -244,7 +296,7 @@ def main() -> None:
     save_activation_queue = Queue()
     save_process = Process(
         target=save_activations_process,
-        args=(save_activation_queue, args.output_dir),
+        args=(save_activation_queue, args.output_dir, rank),
     )
     save_process.start()
     dist.barrier()
