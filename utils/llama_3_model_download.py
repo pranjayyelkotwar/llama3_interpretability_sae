@@ -11,6 +11,10 @@ LLAMA_MODEL_FILES = (
 )
 
 MODEL_REGISTRY = {
+    "llama_3-8B": {
+        "repo_id": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "download_dir": Path("llama_3-8B_model/"),
+    },
     "llama_3.1-8B": {
         "repo_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
         "download_dir": Path("llama_3.1-8B_model/"),
