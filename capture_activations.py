@@ -166,6 +166,12 @@ def parse_arguments() -> argparse.Namespace:
         default="arc_easy,mmlu,hle",
         help="Comma-separated list chosen from: arc_easy,mmlu,hle",
     )
+    parser.add_argument(
+        "--qa_num_samples",
+        type=str,
+        default=None,
+        help="Limit samples per QA dataset. Format: 'dataset_name:num,dataset_name:num' (e.g., 'mmlu:2200')",
+    )
     return parser.parse_args()
 
 
@@ -219,6 +225,7 @@ def main() -> None:
         logging.info(f"# num_samples={args.num_samples}")
         logging.info(f"# dataset_source={args.dataset_source}")
         logging.info(f"# qa_datasets={args.qa_datasets}")
+        logging.info(f"# qa_num_samples={args.qa_num_samples}")
         logging.info("#### Distributed Configuration:")
         logging.info(f"# world_size={world_size}")
         logging.info(f"# rank={rank}")
@@ -245,11 +252,19 @@ def main() -> None:
     logging.info("Creating dataset, sampler and dataloader...")
     if args.dataset_source == "qa":
         dataset_names = [name.strip() for name in args.qa_datasets.split(",") if name.strip()]
+        # Parse num_samples for QA datasets
+        qa_num_samples = None
+        if args.qa_num_samples:
+            qa_num_samples = {}
+            for spec in args.qa_num_samples.split(","):
+                name, num = spec.strip().split(":")
+                qa_num_samples[name.strip()] = int(num)
         dataset = build_combined_question_dataset(
             dataset_names=dataset_names,
             tokenizer=tokenizer,
             max_token_length=max_token_length,
             add_bos_token=add_bos_token,
+            num_samples=qa_num_samples,
         )
     else:
         dataset = OpenWebTextSentencesDataset(
