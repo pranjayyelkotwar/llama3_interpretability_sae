@@ -207,7 +207,7 @@ def main() -> None:
     dataloader_num_workers = 4
     dtype = torch.bfloat16
     max_token_length = 192
-    add_bos_token = False
+    add_bos_token = True # Setting this to true because our dataset has a start of sentence like structure
     dataset_shuffle = True
 
     if rank == 0:

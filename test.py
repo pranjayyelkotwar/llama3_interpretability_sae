@@ -199,6 +199,7 @@ def main() -> None:
             tokenizer=tokenizer,
             max_token_length=args.max_token_length,
             add_bos_token=False,
+            num_samples={"mmlu": 2200},
         )
         print_sample("COMBINED", combined_dataset, args.sample_count)
         print_batch("COMBINED", combined_dataset, args.batch_size)
