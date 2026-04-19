@@ -58,7 +58,7 @@ def train_epoch(
     loss_acc = torch.tensor(0.0, device=device)
     aux_loss_acc = torch.tensor(0.0, device=device)
     total_loss_acc = torch.tensor(0.0, device=device)
-    log_interval = len(dataloader) // logs_per_epoch
+    log_interval = max(1, len(dataloader) // logs_per_epoch)
     accumulated_loss_count = dist.get_world_size() * log_interval
 
     # Create epoch progress bar on main process
