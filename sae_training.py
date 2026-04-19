@@ -76,7 +76,7 @@ def train_epoch(
 
         # Zero the gradients and perform forward pass
         optimizer.zero_grad()
-        reconstructed, h, h_sparse = model.forward_1d_normalized(batch_normalized)
+        reconstructed, h, h_sparse = model.module.forward_1d_normalized(batch_normalized)
 
         # Compute main loss in normalized space
         loss = criterion(reconstructed, batch_normalized)
@@ -206,7 +206,7 @@ def validate_epoch(
             batch_normalized, mean, norm = model.module.preprocess_input(batch)
 
             # Perform forward pass
-            reconstructed, h, h_sparse = model.forward_1d_normalized(batch_normalized)
+            reconstructed, h, h_sparse = model.module.forward_1d_normalized(batch_normalized)
 
             # Compute main loss in normalized space
             loss = criterion(reconstructed, batch_normalized)
@@ -413,7 +413,7 @@ def main() -> None:
         args.model_load_path = args.model_load_path.resolve()
 
     # Set up configuration
-    d_model = 3072
+    d_model = 4096  # Llama 3.1 8B hidden dimension
     n_latents = 2**16  # 65536
     k = 64
     k_aux = 2048
