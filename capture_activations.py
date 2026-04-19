@@ -208,7 +208,7 @@ def main() -> None:
     model_path = args.model_dir / "consolidated.00.pth"
 
     # Set up configuration
-    store_layer_activ = [22]
+    store_layer_activ = [16,22]
     batch_size = 32
     dataloader_num_workers = 4
     dtype = torch.bfloat16

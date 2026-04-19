@@ -1,3 +1,6 @@
 **.pyc
 .env
 *.csv
+
+activation_outs/
+sae_preprocessed/
