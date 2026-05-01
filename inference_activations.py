@@ -3,9 +3,15 @@ import csv
 import json
 import logging
 import re
+import random
 from pathlib import Path
 
 import torch
+
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover
+    tqdm = None
 
 from llama_3.args import ModelArgs
 from llama_3.model_text_only import Transformer
@@ -61,6 +67,18 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top_p", type=float, default=0.9)
     parser.add_argument("--num_samples", type=int, default=None)
+    parser.add_argument(
+        "--subsample",
+        type=int,
+        default=None,
+        help="Randomly subsample N activation files for a quick test run.",
+    )
+    parser.add_argument(
+        "--subsample_seed",
+        type=int,
+        default=42,
+        help="Random seed for subsampling activation files.",
+    )
     parser.add_argument("--dataset_source", type=str, choices=["openwebtext", "qa"], default="qa")
     parser.add_argument(
         "--qa_datasets",
@@ -281,6 +299,19 @@ def main() -> None:
         path for path in activation_paths if parse_activation_idx(path, args.layer) is not None
     ]
 
+    if args.subsample is not None:
+        if args.subsample <= 0:
+            raise ValueError("--subsample must be a positive integer")
+        if args.subsample < len(activation_paths):
+            rng = random.Random(args.subsample_seed)
+            activation_paths = rng.sample(activation_paths, args.subsample)
+        else:
+            logging.info(
+                "Requested subsample size %s exceeds available activations (%s). Using all.",
+                args.subsample,
+                len(activation_paths),
+            )
+
     if args.num_samples is not None:
         activation_paths = activation_paths[: args.num_samples]
 
@@ -303,7 +334,11 @@ def main() -> None:
         writer = csv.DictWriter(csv_file, fieldnames=output_fields)
         writer.writeheader()
 
-        for path in activation_paths:
+        iterator = activation_paths
+        if tqdm is not None:
+            iterator = tqdm(activation_paths, desc="Running activation inference")
+
+        for path in iterator:
             capture_idx = parse_activation_idx(path, args.layer)
             if capture_idx is None:
                 continue
