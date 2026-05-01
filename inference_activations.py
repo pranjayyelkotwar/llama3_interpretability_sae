@@ -1,5 +1,4 @@
 import argparse
-import csv
 import json
 import logging
 import re
@@ -62,7 +61,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--model_name", type=str, choices=sorted(MODEL_REGISTRY.keys()), default=None)
     parser.add_argument("--activation_dir", type=Path, default=Path("activation_outs"))
     parser.add_argument("--layer", type=int, default=22)
-    parser.add_argument("--output_csv", type=Path, default=Path("activation_inference_results.csv"))
+    parser.add_argument("--output_jsonl", type=Path, default=Path("activation_inference_results.jsonl"))
     parser.add_argument("--max_new_tokens", type=int, default=64)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top_p", type=float, default=0.9)
@@ -259,7 +258,7 @@ def main() -> None:
     else:
         args.model_dir = args.model_dir.resolve()
     args.activation_dir = args.activation_dir.resolve()
-    args.output_csv = args.output_csv.resolve()
+    args.output_jsonl = args.output_jsonl.resolve()
 
     tokenizer_path = args.model_dir / "tokenizer.model"
     params_path = args.model_dir / "params.json"
@@ -318,21 +317,10 @@ def main() -> None:
     if not activation_paths:
         raise FileNotFoundError(f"No activation files found under {layer_dir}")
 
-    output_fields = [
-        "dataset_source",
-        "source_id",
-        "combined_dataset_idx",
-        "capture_dataset_idx",
-        "prompt",
-        "final_answer",
-    ]
+    logging.info("Writing JSONL to %s", args.output_jsonl)
+    args.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
 
-    logging.info("Writing CSV to %s", args.output_csv)
-    args.output_csv.parent.mkdir(parents=True, exist_ok=True)
-
-    with args.output_csv.open("w", encoding="utf-8", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=output_fields)
-        writer.writeheader()
+    with args.output_jsonl.open("w", encoding="utf-8") as jsonl_file:
 
         iterator = activation_paths
         if tqdm is not None:
@@ -396,16 +384,15 @@ def main() -> None:
                 top_p=args.top_p,
             )
 
-            writer.writerow(
-                {
-                    "dataset_source": dataset_source,
-                    "source_id": source_id,
-                    "combined_dataset_idx": combined_dataset_idx,
-                    "capture_dataset_idx": capture_idx,
-                    "prompt": prompt_text,
-                    "final_answer": answer,
-                }
-            )
+            record = {
+                "dataset_source": dataset_source,
+                "source_id": source_id,
+                "combined_dataset_idx": combined_dataset_idx,
+                "capture_dataset_idx": capture_idx,
+                "prompt": prompt_text,
+                "final_answer": answer,
+            }
+            jsonl_file.write(json.dumps(record) + "\n")
 
             logging.info("Processed capture idx %s", capture_idx)
 
