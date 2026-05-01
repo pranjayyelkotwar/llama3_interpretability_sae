@@ -21,10 +21,14 @@ def load_model(
     model_path: Path,
     model_args: ModelArgs,
     device: torch.device,
+    max_batch_size: int,
+    max_seq_len: int,
     dtype: torch.dtype = torch.bfloat16,
 ) -> Transformer:
     logging.info("Initializing model on CPU...")
     torch.set_default_dtype(dtype)
+    model_args.max_batch_size = max_batch_size
+    model_args.max_seq_len = max_seq_len
     model = Transformer(model_args)
 
     logging.info("Loading model weights into CPU memory...")
@@ -71,6 +75,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Limit samples per QA dataset. Format: 'dataset_name:num,dataset_name:num' (e.g., 'mmlu:2200')",
     )
     parser.add_argument("--max_token_length", type=int, default=192)
+    parser.add_argument(
+        "--max_batch_size",
+        type=int,
+        default=1,
+        help="Override model max_batch_size to reduce KV cache memory.",
+    )
     parser.add_argument(
         "--add_bos_token",
         action=argparse.BooleanOptionalAction,
@@ -207,7 +217,7 @@ def build_dataset(args: argparse.Namespace, tokenizer: Tokenizer):
 
 
 def load_activation_tensor(path: Path, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    activ = torch.load(path, map_location="cpu")
+    activ = torch.load(path, map_location="cpu", weights_only=True)
     if activ.dtype != dtype:
         activ = activ.to(dtype)
     return activ.to(device)
@@ -244,12 +254,18 @@ def main() -> None:
     with params_path.open("r") as f:
         model_params = json.load(f)
     model_args = ModelArgs(**model_params)
+    max_seq_len = min(
+        model_args.max_seq_len,
+        args.max_token_length + args.max_new_tokens,
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(
         model_path=model_path,
         model_args=model_args,
         device=device,
+        max_batch_size=args.max_batch_size,
+        max_seq_len=max_seq_len,
         dtype=torch.bfloat16,
     )
 
