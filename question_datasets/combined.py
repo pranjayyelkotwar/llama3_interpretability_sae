@@ -72,6 +72,7 @@ def build_combined_question_dataset(
     tokenizer: Any,
     max_token_length: int,
     add_bos_token: bool = False,
+    include_choices: bool = True,
     num_samples: int | dict[str, int] | None = None,
 ) -> CombinedQuestionDataset:
     """
@@ -82,6 +83,7 @@ def build_combined_question_dataset(
         tokenizer: Tokenizer instance
         max_token_length: Maximum token length for each sample
         add_bos_token: Whether to add beginning-of-sequence token
+        include_choices: Whether to include choices in question prompts when available
         num_samples: Number of samples per dataset. Can be:
             - None: use all samples (default)
             - int: apply same limit to all datasets
@@ -97,6 +99,7 @@ def build_combined_question_dataset(
             tokenizer=tokenizer,
             max_token_length=max_token_length,
             add_bos_token=add_bos_token,
+            include_choices=include_choices,
         )
         
         # Apply num_samples limit if specified

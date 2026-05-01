@@ -14,26 +14,39 @@ from utils.cuda_utils import set_up_cuda
 
 class SequenceActivationDataset(Dataset):
     def __init__(self, data_dir: Path, filename_prefix: str):
-        self.data_files = list(data_dir.rglob("*.pt"))
-        self.data_files.sort()
+        all_files = list(data_dir.rglob("*.pt"))
         self.filename_prefix = filename_prefix
-
-        # assert that data indices are continuous and starting at 0
-        assert self.data_files[0].stem[len(self.filename_prefix) :] == "0"
-        assert self.data_files[-1].stem[len(self.filename_prefix) :] == str(
-            len(self.data_files) - 1,
-        )
+        
+        # Filter to only files matching the expected pattern
+        self.data_files = []
+        self.file_indices = []
+        for file_path in all_files:
+            try:
+                # Only include files matching the pattern activations_lX_idxN.pt
+                if file_path.stem.startswith(filename_prefix):
+                    file_idx = int(file_path.stem[len(self.filename_prefix) :])
+                    self.data_files.append(file_path)
+                    self.file_indices.append(file_idx)
+            except ValueError:
+                # Skip files that don't have a valid integer index
+                continue
+        
+        self.data_files.sort()
+        # Re-sort indices to match sorted file paths
+        sorted_pairs = sorted(zip(self.data_files, self.file_indices))
+        self.data_files, self.file_indices = zip(*sorted_pairs) if sorted_pairs else ([], [])
+        self.data_files = list(self.data_files)
+        self.file_indices = list(self.file_indices)
 
     def __len__(self) -> int:
         return len(self.data_files)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         file_path = self.data_files[idx]
-        filename_idx = int(file_path.stem[len(self.filename_prefix) :])
-        assert filename_idx == idx
+        filename_idx = self.file_indices[idx]
 
         data = torch.load(file_path, weights_only=True)
-        return data, idx
+        return data, filename_idx
 
     @staticmethod
     def collate_fn(
@@ -94,10 +107,9 @@ def capture_top_activating_sentences(
     for batch, boundaries, indices in tqdm(dataloader):
         batch = batch.to(dtype).to(device)
 
-        # Forward pass through the model
-        batch_normalized, mean, norm = model.preprocess_input(batch)
+        # Forward pass through the model (forward_1d_normalized handles preprocessing internally)
         with torch.no_grad():
-            _, _, h_sparse = model.forward_1d_normalized(batch_normalized)
+            _, _, h_sparse = model.forward_1d_normalized(batch)
 
         # Unbatch the h_sparse tensor into sequences using the predetermined boundaries
         sequence_h_sparse = []
@@ -170,7 +182,7 @@ def main():
     args.data_dir = args.data_dir.resolve()
     args.model_path = args.model_path.resolve()
     args.captured_data_output_dir = args.captured_data_output_dir.resolve()
-    set_up_cuda()
+    # set_up_cuda()
 
     # Set up configuration
     top_n_sentences = 100
@@ -180,7 +192,7 @@ def main():
     layer = 22
     filename_prefix = f"activations_l{layer}_idx"
     dtype = torch.float32
-    device = torch.device("cuda")
+    device = torch.device("cpu")
     dataloader_num_workers = 8
 
     logging.info("#### Starting script to capture top activating sentences")

@@ -418,7 +418,7 @@ def main() -> None:
     k = 64
     k_aux = 2048
     aux_loss_coeff = 1 / 32
-    dead_steps_threshold = 80_000  # ~1 epoch in training steps
+    dead_steps_threshold = 1_000  # ~1-2 epochs in training steps for smaller datasets
     sae_normalization_eps = 1e-6
     batch_size = 1024
     num_epochs = 10
